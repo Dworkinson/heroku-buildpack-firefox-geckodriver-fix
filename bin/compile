@@ -1,20 +1,13 @@
 #!/usr/bin/env bash
 # bin/compile <build-dir> <cache-dir>
-# Last updated: June 15, 2025 05:02 AM UTC
-echo -en '\n'
+# Last updated: June 20, 2025
 
-# Fail fast
 set -e
 
-# Debug
-# set -x
-
-# Parse and derive params
 BUILD_DIR=$1
 CACHE_DIR=$2
 ENV_DIR=$3
-
-LP_DIR=`cd $(dirname $0); cd ..; pwd`
+LP_DIR=$(cd "$(dirname "$0")"; cd ..; pwd)
 
 function error() {
   echo " !     $*" >&2
@@ -26,22 +19,15 @@ function topic() {
 }
 
 function indent() {
-  c='s/^/       /'
-  case $(uname) in
-    Darwin) sed -l "$c";;
-    *)      sed -u "$c";;
-  esac
+  sed 's/^/       /'
 }
 
-# Config
-# Hardcoded available stable versions
-# Use it to manually update the version as per https://firefox-source-docs.mozilla.org/testing/geckodriver/Support.html
+# Firefox & Geckodriver versions
 VERSION_FIREFOX=139.0.4
 VERSION_GECKODRIVER=0.36.0
 LANG=en-US
 PLATFORM=linux64
 
-# Buildpack URL
 ARCHIVE_NAME_FIREFOX=firefox
 ARCHIVE_NAME_GECKODRIVER=geckodriver
 FILE_NAME_FIREFOX=${ARCHIVE_NAME_FIREFOX}-${VERSION_FIREFOX}.tar.xz
@@ -49,132 +35,106 @@ FILE_NAME_GECKODRIVER=${ARCHIVE_NAME_GECKODRIVER}-v${VERSION_GECKODRIVER}-${PLAT
 BUILDPACK_FIREFOX_PACKAGE="https://download.mozilla.org/?product=firefox-${VERSION_FIREFOX}-SSL&os=${PLATFORM}&lang=${LANG}"
 BUILDPACK_GECKODRIVER_PACKAGE="https://github.com/mozilla/geckodriver/releases/download/v${VERSION_GECKODRIVER}/${FILE_NAME_GECKODRIVER}"
 
-# Install correct dependencies according to $STACK	
-case "$STACK" in	
+# Supported stack
+case "$STACK" in
   "heroku-24" | "heroku-22" | "heroku-20" | "heroku-18" | "heroku-16")
-    PACKAGES="	
-      libappindicator1	
-      libasound2	
-      libatk1.0-0	
-      libatk-bridge2.0-0	
-      libcairo-gobject2	
-      libgconf-2-4	
-      libgtk-3-0	
-      libice6	
-      libnspr4	
-      libnss3	
-      libsm6	
-      libx11-xcb1	
-      libxcomposite1	
-      libxcursor1	
-      libxdamage1	
-      libxfixes3	
-      libxi6	
-      libxinerama1	
-      libxrandr2	
-      libxss1	
-      libxt6	
-      libxtst6	
-      fonts-liberation	
+    PACKAGES="
+      libappindicator1
+      libasound2
+      libatk1.0-0
+      libatk-bridge2.0-0
+      libcairo-gobject2
+      libgconf-2-4
+      libgtk-3-0
+      libice6
+      libnspr4
+      libnss3
+      libsm6
+      libx11-xcb1
+      libxcomposite1
+      libxcursor1
+      libxdamage1
+      libxfixes3
+      libxi6
+      libxinerama1
+      libxrandr2
+      libxss1
+      libxt6
+      libxtst6
+      fonts-liberation
     "
-    ;;	
-  *)	
-    error "Must be on a supported Heroku version: heroku-24, heroku-22, heroku-20, heroku-18, heroku-16"
+    ;;
+  *)
+    error "Must be on a supported Heroku stack (heroku-24, -22, -20, -18, -16)"
 esac
 
-if [ ! -f $CACHE_DIR/PURGED_CACHE_V1 ]; then
-  topic "Purging cache"
-  rm -rf $CACHE_DIR/apt
-  rm -rf $CACHE_DIR/archives
-  rm -rf $CACHE_DIR/lists
-  touch $CACHE_DIR/PURGED_CACHE_V1
+# Clear old apt cache
+if [ ! -f "$CACHE_DIR/PURGED_CACHE_V1" ]; then
+  topic "Purging apt cache"
+  rm -rf "$CACHE_DIR/apt" "$CACHE_DIR/archives" "$CACHE_DIR/lists"
+  touch "$CACHE_DIR/PURGED_CACHE_V1"
 fi
 
-topic "Installing correct dependencies."
-
+# Setup apt dirs
 APT_CACHE_DIR="$CACHE_DIR/apt/cache"
 APT_STATE_DIR="$CACHE_DIR/apt/state"
-
-mkdir -p "$APT_CACHE_DIR/archives/partial"
-mkdir -p "$APT_STATE_DIR/lists/partial"
-
+mkdir -p "$APT_CACHE_DIR/archives/partial" "$APT_STATE_DIR/lists/partial"
 APT_OPTIONS="-o debug::nolocking=true -o dir::cache=$APT_CACHE_DIR -o dir::state=$APT_STATE_DIR"
 
 topic "Updating apt caches"
 apt-get $APT_OPTIONS update | indent
 
+# Download apt packages
 for PACKAGE in $PACKAGES; do
-  if [[ $PACKAGE == *deb ]]; then
-    PACKAGE_NAME=$(basename $PACKAGE .deb)
-    PACKAGE_FILE=$APT_CACHE_DIR/archives/$PACKAGE_NAME.deb
-
-    topic "Fetching $PACKAGE"
-    curl -s -L -z $PACKAGE_FILE -o $PACKAGE_FILE $PACKAGE 2>&1 | indent
-  else
-    topic "Fetching .debs for $PACKAGE"
-    apt-get $APT_OPTIONS -y -d install --reinstall $PACKAGE | indent
-  fi
+  topic "Fetching .debs for $PACKAGE"
+  apt-get $APT_OPTIONS -y -d install --reinstall $PACKAGE | indent
 done
 
-mkdir -p $BUILD_DIR/.apt
-
-for DEB in $(ls -1 $APT_CACHE_DIR/archives/*.deb); do
-  topic "Installing $(basename $DEB)"
-  dpkg -x $DEB $BUILD_DIR/.apt/
+# Extract .debs into .apt directory
+mkdir -p "$BUILD_DIR/.apt"
+for DEB in "$APT_CACHE_DIR"/archives/*.deb; do
+  topic "Installing $(basename "$DEB")"
+  dpkg -x "$DEB" "$BUILD_DIR/.apt/"
 done
 
-# Install Firefox
-mkdir -p $CACHE_DIR
-if ! [ -e $CACHE_DIR/$FILE_NAME_FIREFOX ]; then
-  topic "Fetching Firefox package from ${BUILDPACK_FIREFOX_PACKAGE}"
-  curl $BUILDPACK_FIREFOX_PACKAGE -L -o $CACHE_DIR/$FILE_NAME_FIREFOX
+# Firefox
+if [ ! -f "$CACHE_DIR/$FILE_NAME_FIREFOX" ]; then
+  topic "Downloading Firefox"
+  curl -sSL "$BUILDPACK_FIREFOX_PACKAGE" -o "$CACHE_DIR/$FILE_NAME_FIREFOX"
 fi
 
-topic "Extracting Firefox binaries to ${BUILD_DIR}/vendor/${ARCHIVE_NAME_FIREFOX}"
-mkdir -p $CACHE_DIR/$ARCHIVE_NAME_FIREFOX
-mkdir -p $BUILD_DIR/vendor
-mkdir -p $BUILD_DIR/vendor/firefox
-tar -xJf $CACHE_DIR/$FILE_NAME_FIREFOX --strip-components=1 -C $BUILD_DIR/vendor/firefox
+topic "Extracting Firefox to vendor"
+mkdir -p "$BUILD_DIR/vendor/firefox"
+tar -xJf "$CACHE_DIR/$FILE_NAME_FIREFOX" --strip-components=1 -C "$BUILD_DIR/vendor/firefox"
 
-# Install Geckodriver
-if ! [ -e $CACHE_DIR/$FILE_NAME_GECKODRIVER ]; then
-  topic "Fetching Geckodriver package from ${BUILDPACK_GECKODRIVER_PACKAGE}"
-  curl $BUILDPACK_GECKODRIVER_PACKAGE -L -o $CACHE_DIR/$FILE_NAME_GECKODRIVER
+# Geckodriver
+if [ ! -f "$CACHE_DIR/$FILE_NAME_GECKODRIVER" ]; then
+  topic "Downloading Geckodriver"
+  curl -sSL "$BUILDPACK_GECKODRIVER_PACKAGE" -o "$CACHE_DIR/$FILE_NAME_GECKODRIVER"
 fi
 
-topic "Extracting Geckodriver binaries to ${BUILD_DIR}/vendor/${ARCHIVE_NAME_GECKODRIVER}"
-mkdir -p $BUILD_DIR/vendor/$ARCHIVE_NAME_GECKODRIVER
-tar -xzf $CACHE_DIR/$FILE_NAME_GECKODRIVER -C $CACHE_DIR
-tar -xzf $CACHE_DIR/$FILE_NAME_GECKODRIVER -C $BUILD_DIR/vendor/geckodriver
-chmod +x $BUILD_DIR/vendor/geckodriver/geckodriver
+topic "Extracting Geckodriver"
+mkdir -p "$BUILD_DIR/vendor/geckodriver"
+tar -xzf "$CACHE_DIR/$FILE_NAME_GECKODRIVER" -C "$BUILD_DIR/vendor/geckodriver"
+chmod +x "$BUILD_DIR/vendor/geckodriver/geckodriver"
 
-topic "Setting paths"
-mkdir -p $BUILD_DIR/.profile.d
-cat <<EOF >$BUILD_DIR/.profile.d/000_apt.sh
+chmod +x "$BUILD_DIR/vendor/firefox/firefox"
+
+# Set environment
+topic "Setting environment variables"
+mkdir -p "$BUILD_DIR/.profile.d"
+cat <<EOF > "$BUILD_DIR/.profile.d/000_firefox_env.sh"
 export PATH="\$HOME/.apt/usr/bin:\$HOME/vendor/firefox:\$HOME/vendor/geckodriver:\$PATH"
-export LD_LIBRARY_PATH="\$HOME/.apt/usr/lib/x86_64-linux-gnu:\$HOME/.apt/usr/lib/i386-linux-gnu:\$HOME/.apt/usr/lib:\$BUILD_DIR/vendor/firefox:\$BUILD_DIR/vendor/geckodriver:\$LD_LIBRARY_PATH"
-export LIBRARY_PATH="\$HOME/.apt/usr/lib/x86_64-linux-gnu:\$HOME/.apt/usr/lib/i386-linux-gnu:\$HOME/.apt/usr/lib:\$BUILD_DIR/vendor/firefox:\$BUILD_DIR/vendor/geckodriver:\$LIBRARY_PATH"
+export LD_LIBRARY_PATH="\$HOME/.apt/usr/lib/x86_64-linux-gnu:\$HOME/.apt/usr/lib/i386-linux-gnu:\$HOME/.apt/usr/lib:\$HOME/vendor/firefox:\$HOME/vendor/geckodriver:\$LD_LIBRARY_PATH"
+export LIBRARY_PATH="\$HOME/.apt/usr/lib/x86_64-linux-gnu:\$HOME/.apt/usr/lib/i386-linux-gnu:\$HOME/.apt/usr/lib:\$HOME/vendor/firefox:\$HOME/vendor/geckodriver:\$LIBRARY_PATH"
 export INCLUDE_PATH="\$HOME/.apt/usr/include:\$HOME/.apt/usr/include/x86_64-linux-gnu:\$INCLUDE_PATH"
 export CPATH="\$INCLUDE_PATH"
 export CPPPATH="\$INCLUDE_PATH"
 export PKG_CONFIG_PATH="\$HOME/.apt/usr/lib/x86_64-linux-gnu/pkgconfig:\$HOME/.apt/usr/lib/i386-linux-gnu/pkgconfig:\$HOME/.apt/usr/lib/pkgconfig:\$PKG_CONFIG_PATH"
-export TMPDIR="\$BUILD_DIR/tmp"
+export TMPDIR="\$HOME/tmp"
 EOF
 
-export PATH="$BUILD_DIR/.apt/usr/bin:$BUILD_DIR/vendor/firefox:$BUILD_DIR/vendor/geckodriver:$PATH"
-export LD_LIBRARY_PATH="$BUILD_DIR/.apt/usr/lib/x86_64-linux-gnu:$BUILD_DIR/.apt/usr/lib/i386-linux-gnu:$BUILD_DIR/.apt/usr/lib:\$BUILD_DIR/vendor/firefox:\$BUILD_DIR/vendor/geckodriver:\$LIBRARY_PATH"
-export LIBRARY_PATH="$BUILD_DIR/.apt/usr/lib/x86_64-linux-gnu:$BUILD_DIR/.apt/usr/lib/i386-linux-gnu:$BUILD_DIR/.apt/usr/lib:\$BUILD_DIR/vendor/firefox:\$BUILD_DIR/vendor/geckodriver:\$LIBRARY_PATH"
-export INCLUDE_PATH="$BUILD_DIR/.apt/usr/include:$BUILD_DIR/.apt/usr/include/x86_64-linux-gnu:$INCLUDE_PATH"
-export CPATH="$INCLUDE_PATH"
-export CPPPATH="$INCLUDE_PATH"
-export PKG_CONFIG_PATH="$BUILD_DIR/.apt/usr/lib/x86_64-linux-gnu/pkgconfig:$BUILD_DIR/.apt/usr/lib/i386-linux-gnu/pkgconfig:$BUILD_DIR/.apt/usr/lib/pkgconfig:$PKG_CONFIG_PATH"
-export TMPDIR="\$BUILD_DIR/tmp"
+# Give environment to later buildpacks
+export | grep -E ' (PATH|LD_LIBRARY_PATH|LIBRARY_PATH|INCLUDE_PATH|CPATH|CPPPATH|PKG_CONFIG_PATH)=' > "$LP_DIR/export"
 
-#Give environment to later buildpacks
-export | grep -E -e ' (PATH|LD_LIBRARY_PATH|LIBRARY_PATH|INCLUDE_PATH|CPATH|CPPPATH|PKG_CONFIG_PATH)='  > "$LP_DIR/export"
-
-topic "Rewrite package-config files"
-find $BUILD_DIR/.apt -type f -ipath '*/pkgconfig/*.pc' | xargs --no-run-if-empty -n 1 sed -i -e 's!^prefix=\(.*\)$!prefix='"$BUILD_DIR"'/.apt\1!g'
-
-chmod +x "$BUILD_DIR/vendor/firefox/firefox"
-chmod +x "$BUILD_DIR/vendor/geckodriver/geckodriver"
+topic "Done installing Firefox and Geckodriver"
