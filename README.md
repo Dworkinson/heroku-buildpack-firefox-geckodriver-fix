@@ -10,10 +10,10 @@ This buildpack ensures it always builds with the latest version of Mozilla Firef
 To install and integrate the buildpack with your application running on Heroku's dyno:
 
 ```
-$ heroku create --buildpack https://github.com/zibdie/heroku-buildpack-firefox-geckodriver
+$ heroku create --buildpack https://github.com/Dworkinson/heroku-buildpack-firefox-geckodriver-fix
 
 # or if your app is already created:
-$ heroku buildpacks:add https://github.com/zibdie/heroku-buildpack-firefox-geckodriver
+$ heroku buildpacks:add https://github.com/Dworkinson/heroku-buildpack-firefox-geckodriver-fix
 
 $ git push heroku master
 ```
@@ -43,7 +43,3 @@ The `/bin/compile` will always have the last time it was checked for a version, 
 # bin/compile <build-dir> <cache-dir>
 # Last updated: August 02, 2022 01:39 PM UTC
 ```
-
-## Im having trouble running this buildpack. What should I do?
-
-Do not hesitate to open an issue on this repository.
